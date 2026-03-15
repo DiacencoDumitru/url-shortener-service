@@ -9,8 +9,10 @@ import com.diacencodumitru.url_shortener.service.UrlService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -21,20 +23,24 @@ public class UrlServiceImpl implements UrlService {
 
     private final UrlRepository urlRepository;
 
+    @Value("${url-shortener.expiration-minutes:1}")
+    private long expirationMinutes;
+
     @Override
     public UrlResponseDTO shortenUrl(UrlRequestDTO data, HttpServletRequest request) {
         String id;
 
         do {
-            // Generate a random alphanumeric string with a length between 5 and 10 characters
             id = RandomStringUtils.randomAlphanumeric(5, 10);
         } while (urlRepository.existsById(id));
 
-        // Save the URL in the database with an expiration time of 1 minute
-        urlRepository.save(new UrlEntity(id, data.url(), LocalDateTime.now().plusMinutes(1)));
+        urlRepository.save(new UrlEntity(id, data.url(), LocalDateTime.now().plusMinutes(expirationMinutes)));
 
-        // {POST} url/shorten-url (shorten-url меняем на короткий redirectUrl)
-        String redirectUrl = request.getRequestURL().toString().replace("shorten-url", id);
+        String redirectUrl = ServletUriComponentsBuilder.fromRequestUri(request)
+                .replacePath("/" + id)
+                .replaceQuery(null)
+                .build()
+                .toUriString();
 
         return new UrlResponseDTO(data.url(), redirectUrl);
     }

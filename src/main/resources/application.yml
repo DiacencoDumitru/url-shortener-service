@@ -7,3 +7,6 @@ spring:
       host: localhost
       port: 27017
       database: url-shortener-db
+
+url-shortener:
+  expiration-minutes: 1
