@@ -1,5 +1,6 @@
 package com.diacencodumitru.url_shortener.exceptions.handler;
 
+import com.diacencodumitru.url_shortener.exceptions.RateLimitExceededException;
 import com.diacencodumitru.url_shortener.exceptions.UrlNotFoundException;
 import com.diacencodumitru.url_shortener.exceptions.model.UrlShortenerError;
 import org.springframework.http.HttpStatus;
@@ -22,5 +23,16 @@ public class UrlShortenerExceptionHandler {
                 .errors(List.of(ex.getMessage()))
                 .build();
         return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<UrlShortenerError> handleRateLimitExceeded(RateLimitExceededException ex) {
+        UrlShortenerError errorResponse = UrlShortenerError.builder()
+                .timestamp(LocalDateTime.now())
+                .code(HttpStatus.TOO_MANY_REQUESTS.value())
+                .status(HttpStatus.TOO_MANY_REQUESTS.name())
+                .errors(List.of(ex.getMessage()))
+                .build();
+        return new ResponseEntity<>(errorResponse, HttpStatus.TOO_MANY_REQUESTS);
     }
 }
