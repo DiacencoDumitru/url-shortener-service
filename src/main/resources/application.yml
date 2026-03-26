@@ -7,6 +7,16 @@ spring:
       host: localhost
       port: 27017
       database: url-shortener-db
+    redis:
+      host: localhost
+      port: 6379
+      connect-timeout: 2s
+  redis:
+    timeout: 5s
 
 url-shortener:
   expiration-minutes: 1
+  rate-limit:
+    capacity: 10
+    refill-tokens: 10
+    refill-duration-seconds: 60
