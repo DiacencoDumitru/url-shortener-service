@@ -8,6 +8,7 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
 - **Layered structure**
   - **Controller**: `UrlController` exposes REST endpoints for shortening and redirecting URLs.
   - **Service**: `UrlService` / `UrlServiceImpl` contains business logic for ID generation and persistence.
+  - **Rate limiting**: `RateLimiterService` / `RedisTokenBucketRateLimiter` protects `POST /shorten-url` from abuse.
   - **Persistence**: `UrlRepository` works with MongoDB and the `UrlEntity` document.
   - **DTOs**: `UrlRequestDTO`, `UrlResponseDTO` are used as input/output contracts for the API.
 - **Persistence and expiration**
@@ -25,16 +26,23 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
     ```
 - **Error handling**
   - `UrlNotFoundException` is raised when an unknown short ID is requested.
+  - `RateLimitExceededException` is raised when a client exceeds the create-link limit.
   - `UrlShortenerExceptionHandler` converts domain exceptions into a JSON error model (`UrlShortenerError`).
+- **Rate limiting strategy**
+  - Implemented with Redis token bucket and an atomic Lua script.
+  - Client identity is resolved from `X-Forwarded-For` header, otherwise from request remote address.
+  - Redis key format: `rate-limit:shorten-url:<clientId>`.
 
 ### Tech Stack
 
 - Java 17
 - Spring Boot 3 (Web, Data MongoDB)
+- Spring Data Redis
 - MongoDB with TTL index
+- Redis
 - Maven
 - Docker / Docker Compose
-- Testcontainers (MongoDB) for integration testing
+- Testcontainers (MongoDB, Redis) for integration testing
 
 ### Configuration
 
@@ -44,8 +52,16 @@ Main configuration is located in `src/main/resources/application.yml`:
   - `spring.data.mongodb.host`
   - `spring.data.mongodb.port`
   - `spring.data.mongodb.database`
+- **Redis**
+  - `spring.data.redis.host`
+  - `spring.data.redis.port`
+  - `spring.data.redis.connect-timeout`
+  - `spring.redis.timeout`
 - **URL shortener**
   - `url-shortener.expiration-minutes` – lifetime of a short URL in minutes (default: `1`).
+  - `url-shortener.rate-limit.capacity` – max tokens in bucket (default: `10`).
+  - `url-shortener.rate-limit.refill-tokens` – tokens added each refill interval (default: `10`).
+  - `url-shortener.rate-limit.refill-duration-seconds` – refill interval in seconds (default: `60`).
 
 You can override these properties via environment variables or command‑line arguments if needed.
 
@@ -112,6 +128,22 @@ Then run the Spring Boot application as described above.
 
 `shortenUrl` is a full redirect URL that you can share with clients.
 
+Possible error when rate limit is exceeded:
+
+- **Status**: `429 Too Many Requests`
+- **Body**:
+
+```json
+{
+  "timestamp": "01-01-2024 12:00:00",
+  "code": 429,
+  "status": "TOO_MANY_REQUESTS",
+  "errors": [
+    "Rate limit exceeded for client client-a"
+  ]
+}
+```
+
 #### Redirect by short ID
 
 - **Method**: `GET`
@@ -137,10 +169,11 @@ Behavior:
 
 The project focuses on **integration tests**:
 
-- `UrlControllerIT` starts the full Spring context and a real MongoDB instance using **Testcontainers**.
+- `UrlControllerIT` starts the full Spring context and real MongoDB/Redis instances using **Testcontainers**.
 - The test covers the full flow:
   - Creating a short URL through the HTTP API.
   - Validating the redirect response and `Location` header.
+  - Returning `429 Too Many Requests` when create-link rate limit is exceeded.
 
 Run tests with:
 
@@ -152,6 +185,7 @@ mvn test
 
 - Clean layered architecture (controller → service → repository → MongoDB).
 - Configurable expiration for short URLs via application properties.
+- Redis-based token bucket rate limiting for create-link endpoint abuse protection.
 - Robust URL generation that respects the incoming request context.
 - Centralized error handling and a consistent error response model.
 - Integration tests based on Testcontainers to verify real application behavior end‑to‑end.

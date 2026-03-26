@@ -11,6 +11,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -27,9 +28,17 @@ class UrlControllerIT {
     @Container
     static MongoDBContainer mongoDBContainer = new MongoDBContainer("mongo:7.0");
 
+    @Container
+    static GenericContainer<?> redisContainer = new GenericContainer<>("redis:7.2-alpine").withExposedPorts(6379);
+
     @DynamicPropertySource
     static void mongoProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.data.mongodb.uri", mongoDBContainer::getConnectionString);
+        registry.add("spring.data.redis.host", redisContainer::getHost);
+        registry.add("spring.data.redis.port", () -> redisContainer.getMappedPort(6379));
+        registry.add("url-shortener.rate-limit.capacity", () -> 2L);
+        registry.add("url-shortener.rate-limit.refill-tokens", () -> 2L);
+        registry.add("url-shortener.rate-limit.refill-duration-seconds", () -> 60L);
     }
 
     @Autowired
@@ -55,6 +64,29 @@ class UrlControllerIT {
         mockMvc.perform(get(payload.shortenUrl().replace("http://localhost", "")))
                 .andExpect(status().isFound())
                 .andExpect(header().string("Location", request.url()));
+    }
+
+    @Test
+    void shortenUrlShouldReturnTooManyRequestsWhenRateLimitExceeded() throws Exception {
+        UrlRequestDTO request = new UrlRequestDTO("https://example.com");
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-Forwarded-For", "client-a"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-Forwarded-For", "client-a"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-Forwarded-For", "client-a"))
+                .andExpect(status().isTooManyRequests());
     }
 
     private record UrlResponsePayload(String url, String shortenUrl) {
