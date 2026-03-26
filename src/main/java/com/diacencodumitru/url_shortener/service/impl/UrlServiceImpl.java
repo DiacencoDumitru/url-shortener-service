@@ -5,9 +5,10 @@ import com.diacencodumitru.url_shortener.domain.dto.url.UrlResponseDTO;
 import com.diacencodumitru.url_shortener.entities.UrlEntity;
 import com.diacencodumitru.url_shortener.exceptions.UrlNotFoundException;
 import com.diacencodumitru.url_shortener.repository.UrlRepository;
+import com.diacencodumitru.url_shortener.service.RateLimiterService;
 import com.diacencodumitru.url_shortener.service.UrlService;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -18,16 +19,20 @@ import java.net.URI;
 import java.time.LocalDateTime;
 
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class UrlServiceImpl implements UrlService {
 
     private final UrlRepository urlRepository;
+    private final RateLimiterService rateLimiterService;
 
     @Value("${url-shortener.expiration-minutes:1}")
     private long expirationMinutes;
 
     @Override
     public UrlResponseDTO shortenUrl(UrlRequestDTO data, HttpServletRequest request) {
+        String clientId = extractClientId(request);
+        rateLimiterService.consumeTokenOrThrow(clientId);
+
         String id;
 
         do {
@@ -43,6 +48,14 @@ public class UrlServiceImpl implements UrlService {
                 .toUriString();
 
         return new UrlResponseDTO(data.url(), redirectUrl);
+    }
+
+    private String extractClientId(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @Override
