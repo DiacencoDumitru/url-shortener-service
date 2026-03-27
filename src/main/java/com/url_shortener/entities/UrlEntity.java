@@ -1,4 +1,4 @@
-package com.diacencodumitru.url_shortener.entities;
+package com.url_shortener.entities;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

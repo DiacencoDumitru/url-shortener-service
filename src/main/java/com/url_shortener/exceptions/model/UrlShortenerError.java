@@ -1,4 +1,4 @@
-package com.diacencodumitru.url_shortener.exceptions.model;
+package com.url_shortener.exceptions.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;

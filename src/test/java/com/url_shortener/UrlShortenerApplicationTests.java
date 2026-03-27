@@ -1,4 +1,4 @@
-package com.diacencodumitru.url_shortener;
+package com.url_shortener;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

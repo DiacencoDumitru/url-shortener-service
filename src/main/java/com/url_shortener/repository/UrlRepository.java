@@ -1,6 +1,6 @@
-package com.diacencodumitru.url_shortener.repository;
+package com.url_shortener.repository;
 
-import com.diacencodumitru.url_shortener.entities.UrlEntity;
+import com.url_shortener.entities.UrlEntity;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 // This interface extends the MongoRepository interface, which provides basic CRUD operations for the UrlEntity class.

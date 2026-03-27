@@ -1,4 +1,4 @@
-package com.diacencodumitru.url_shortener.exceptions;
+package com.url_shortener.exceptions;
 
 import lombok.Getter;
 
