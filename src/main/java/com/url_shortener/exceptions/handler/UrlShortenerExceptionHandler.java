@@ -1,8 +1,8 @@
-package com.diacencodumitru.url_shortener.exceptions.handler;
+package com.url_shortener.exceptions.handler;
 
-import com.diacencodumitru.url_shortener.exceptions.RateLimitExceededException;
-import com.diacencodumitru.url_shortener.exceptions.UrlNotFoundException;
-import com.diacencodumitru.url_shortener.exceptions.model.UrlShortenerError;
+import com.url_shortener.exceptions.RateLimitExceededException;
+import com.url_shortener.exceptions.UrlNotFoundException;
+import com.url_shortener.exceptions.model.UrlShortenerError;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;

@@ -1,8 +1,8 @@
-package com.diacencodumitru.url_shortener.controller;
+package com.url_shortener.controller;
 
-import com.diacencodumitru.url_shortener.domain.dto.url.UrlRequestDTO;
-import com.diacencodumitru.url_shortener.domain.dto.url.UrlResponseDTO;
-import com.diacencodumitru.url_shortener.service.UrlService;
+import com.url_shortener.domain.dto.url.UrlRequestDTO;
+import com.url_shortener.domain.dto.url.UrlResponseDTO;
+import com.url_shortener.service.UrlService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
 import org.springframework.http.HttpHeaders;

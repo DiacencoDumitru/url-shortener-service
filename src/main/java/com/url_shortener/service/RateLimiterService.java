@@ -1,4 +1,4 @@
-package com.diacencodumitru.url_shortener.service;
+package com.url_shortener.service;
 
 public interface RateLimiterService {
 

@@ -1,7 +1,7 @@
-package com.diacencodumitru.url_shortener.service.impl;
+package com.url_shortener.service.impl;
 
-import com.diacencodumitru.url_shortener.exceptions.RateLimitExceededException;
-import com.diacencodumitru.url_shortener.service.RateLimiterService;
+import com.url_shortener.exceptions.RateLimitExceededException;
+import com.url_shortener.service.RateLimiterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
