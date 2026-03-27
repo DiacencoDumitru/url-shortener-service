@@ -6,11 +6,13 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
 ### Architecture Overview
 
 - **Layered structure**
-  - **Controller**: `UrlController` exposes REST endpoints for shortening and redirecting URLs.
+  - **Controller**: `UrlController` exposes REST endpoints for shortening and redirecting URLs; `StatsController` exposes click statistics for a short ID.
   - **Service**: `UrlService` / `UrlServiceImpl` contains business logic for ID generation and persistence.
   - **Rate limiting**: `RateLimiterService` / `RedisTokenBucketRateLimiter` protects `POST /shorten-url` from abuse.
+  - **Redirect cache**: `RedirectUrlCacheService` / `RedisRedirectUrlCacheService` caches redirect targets in Redis (cache-aside) to offload read-heavy `GET /{id}` traffic from MongoDB.
+  - **Click analytics**: `ClickCounterService` / `RedisClickCounterService` stores per-link click counts in Redis using atomic `INCR`, with TTL aligned to link expiry.
   - **Persistence**: `UrlRepository` works with MongoDB and the `UrlEntity` document.
-  - **DTOs**: `UrlRequestDTO`, `UrlResponseDTO` are used as input/output contracts for the API.
+  - **DTOs**: `UrlRequestDTO`, `UrlResponseDTO`, `UrlClickStatsDTO` are used as input/output contracts for the API.
 - **Persistence and expiration**
   - Each short URL is stored as a `UrlEntity` document in MongoDB.
   - A TTL index on the `expiredAt` field automatically deletes expired records.
@@ -32,6 +34,14 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
   - Implemented with Redis token bucket and an atomic Lua script.
   - Client identity is resolved from `X-Forwarded-For` header, otherwise from request remote address.
   - Redis key format: `rate-limit:shorten-url:<clientId>`.
+- **Redirect cache strategy**
+  - On successful `POST /shorten-url`, the target URL is written to Redis with a TTL aligned to the link expiry.
+  - On `GET /{id}`, the service reads from Redis first; on a miss it loads from MongoDB and repopulates Redis.
+  - Redis key format: `cache:url:redirect:<id>`.
+- **Click analytics strategy**
+  - On successful `POST /shorten-url`, a click counter is initialized in Redis with the same TTL as the short link.
+  - Each successful `GET /{id}` redirect increments the counter atomically.
+  - Redis key format: `stats:url:clicks:<id>`.
 
 ### Tech Stack
 
@@ -152,6 +162,7 @@ Possible error when rate limit is exceeded:
 Behavior:
 
 - If the ID exists and is not yet removed by MongoDB TTL, the service responds with **302 Found** and `Location` header containing the original URL.
+- The target URL is resolved from Redis when cached; otherwise MongoDB is used and the entry is cached.
 - If the ID does not exist (or is already expired and removed), the service returns **404 Not Found** with a JSON error payload:
 
 ```json
@@ -165,6 +176,21 @@ Behavior:
 }
 ```
 
+#### Click statistics for a short ID
+
+- **Method**: `GET`
+- **Path**: `/stats/{id}`
+- **Response body** (when the short ID exists):
+
+```json
+{
+  "id": "AbC123",
+  "clicks": 42
+}
+```
+
+- If the ID does not exist, the service returns **404 Not Found** with the same JSON error model as other endpoints.
+
 ### Testing
 
 The project focuses on **integration tests**:
@@ -173,6 +199,8 @@ The project focuses on **integration tests**:
 - The test covers the full flow:
   - Creating a short URL through the HTTP API.
   - Validating the redirect response and `Location` header.
+  - Verifying that the redirect target is stored in Redis after creation.
+  - Verifying click counters and `GET /stats/{id}` after multiple redirects.
   - Returning `429 Too Many Requests` when create-link rate limit is exceeded.
 
 Run tests with:
@@ -186,6 +214,8 @@ mvn test
 - Clean layered architecture (controller → service → repository → MongoDB).
 - Configurable expiration for short URLs via application properties.
 - Redis-based token bucket rate limiting for create-link endpoint abuse protection.
+- Redis cache-aside for redirect lookups to reduce MongoDB read load on popular links.
+- Redis-backed click analytics with an HTTP API for per-link statistics.
 - Robust URL generation that respects the incoming request context.
 - Centralized error handling and a consistent error response model.
 - Integration tests based on Testcontainers to verify real application behavior end‑to‑end.
