@@ -42,11 +42,20 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
   - On successful `POST /shorten-url`, a click counter is initialized in Redis with the same TTL as the short link.
   - Each successful `GET /{id}` redirect increments the counter atomically.
   - Redis key format: `stats:url:clicks:<id>`.
+- **Operations / health**
+  - Spring Boot Actuator exposes health and info endpoints.
+  - Kubernetes-style **liveness** and **readiness** probes are available when enabled in configuration.
+  - MongoDB and Redis contribute to the overall application health.
+- **API documentation**
+  - OpenAPI 3 description is generated at runtime (springdoc-openapi).
+  - **Swagger UI** is served for interactive exploration and testing of endpoints.
 
 ### Tech Stack
 
 - Java 17
 - Spring Boot 3 (Web, Data MongoDB)
+- Spring Boot Actuator
+- springdoc-openapi (OpenAPI 3 + Swagger UI)
 - Spring Data Redis
 - MongoDB with TTL index
 - Redis
@@ -67,11 +76,18 @@ Main configuration is located in `src/main/resources/application.yml`:
   - `spring.data.redis.port`
   - `spring.data.redis.connect-timeout`
   - `spring.redis.timeout`
+- **Actuator**
+  - `management.endpoints.web.exposure.include` – exposed web endpoints (default in this project: `health`, `info`).
+  - `management.endpoint.health.show-details` – detail level for health payloads (default: `never`).
+  - `management.endpoint.health.probes.enabled` – enables `/actuator/health/liveness` and `/actuator/health/readiness` for orchestrators (default: `true`).
 - **URL shortener**
   - `url-shortener.expiration-minutes` – lifetime of a short URL in minutes (default: `1`).
   - `url-shortener.rate-limit.capacity` – max tokens in bucket (default: `10`).
   - `url-shortener.rate-limit.refill-tokens` – tokens added each refill interval (default: `10`).
   - `url-shortener.rate-limit.refill-duration-seconds` – refill interval in seconds (default: `60`).
+- **OpenAPI / Swagger UI**
+  - `springdoc.show-actuator` – whether to include Actuator endpoints in the OpenAPI document (default in this project: `false`).
+  - `springdoc.swagger-ui.path` – Swagger UI base path (default in this project: `/swagger-ui.html`).
 
 You can override these properties via environment variables or command‑line arguments if needed.
 
@@ -114,6 +130,11 @@ docker-compose up -d
 Then run the Spring Boot application as described above.
 
 ### API Usage
+
+#### OpenAPI and Swagger UI
+
+- **OpenAPI JSON**: `GET /v3/api-docs`
+- **Swagger UI**: open `http://localhost:8080/swagger-ui.html` in a browser (or follow the redirect to the UI).
 
 #### Create short URL
 
@@ -191,6 +212,23 @@ Behavior:
 
 - If the ID does not exist, the service returns **404 Not Found** with the same JSON error model as other endpoints.
 
+#### Health and probes
+
+- **Method**: `GET`
+- **Paths**:
+  - `/actuator/health` – overall status.
+  - `/actuator/health/liveness` – liveness probe (when probes are enabled).
+  - `/actuator/health/readiness` – readiness probe (when probes are enabled).
+  - `/actuator/info` – build/application metadata when configured.
+
+Example aggregate health response:
+
+```json
+{
+  "status": "UP"
+}
+```
+
 ### Testing
 
 The project focuses on **integration tests**:
@@ -202,6 +240,8 @@ The project focuses on **integration tests**:
   - Verifying that the redirect target is stored in Redis after creation.
   - Verifying click counters and `GET /stats/{id}` after multiple redirects.
   - Returning `429 Too Many Requests` when create-link rate limit is exceeded.
+  - Validating Actuator health and liveness/readiness endpoints.
+  - Verifying that the OpenAPI document lists core REST paths.
 
 Run tests with:
 
@@ -219,3 +259,5 @@ mvn test
 - Robust URL generation that respects the incoming request context.
 - Centralized error handling and a consistent error response model.
 - Integration tests based on Testcontainers to verify real application behavior end‑to‑end.
+- Spring Boot Actuator health and probe endpoints for operations and Kubernetes-style deployments.
+- OpenAPI 3 and Swagger UI for discoverable, testable HTTP APIs.

@@ -14,9 +14,25 @@ spring:
   redis:
     timeout: 5s
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+
 url-shortener:
   expiration-minutes: 1
   rate-limit:
     capacity: 10
     refill-tokens: 10
     refill-duration-seconds: 60
+
+springdoc:
+  show-actuator: false
+  swagger-ui:
+    path: /swagger-ui.html
