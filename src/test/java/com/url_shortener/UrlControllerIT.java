@@ -2,6 +2,7 @@ package com.url_shortener;
 
 import com.url_shortener.domain.dto.stats.UrlClickStatsDTO;
 import com.url_shortener.domain.dto.url.UrlRequestDTO;
+import com.url_shortener.service.impl.RedisIdempotencyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,7 +64,8 @@ class UrlControllerIT {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
-                .andExpect(content().string(containsString("/shorten-url")));
+                .andExpect(content().string(containsString("/shorten-url")))
+                .andExpect(content().string(containsString("Idempotency-Key")));
     }
 
     @Test
@@ -151,6 +153,112 @@ class UrlControllerIT {
         String id = path.startsWith("/") ? path.substring(1) : path;
 
         assertThat(stringRedisTemplate.opsForValue().get("cache:url:redirect:" + id)).isEqualTo(request.url());
+    }
+
+    @Test
+    void idempotentShortenShouldReturnSameShortUrl() throws Exception {
+        UrlRequestDTO request = new UrlRequestDTO("https://example.com/idempotent");
+
+        String first = mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("Idempotency-Key", "idem-key-1"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String second = mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("Idempotency-Key", "idem-key-1"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UrlResponsePayload p1 = objectMapper.readValue(first, UrlResponsePayload.class);
+        UrlResponsePayload p2 = objectMapper.readValue(second, UrlResponsePayload.class);
+        assertThat(p1.shortenUrl()).isEqualTo(p2.shortenUrl());
+
+        String path = URI.create(p1.shortenUrl()).getPath();
+        String id = path.startsWith("/") ? path.substring(1) : path;
+        assertThat(stringRedisTemplate.opsForValue().get(RedisIdempotencyService.KEY_PREFIX + "idem-key-1"))
+                .contains(id);
+    }
+
+    @Test
+    void idempotentShortenShouldReturnConflictWhenBodyDiffers() throws Exception {
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/a")))
+                        .header("Idempotency-Key", "idem-conflict"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/b")))
+                        .header("Idempotency-Key", "idem-conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("CONFLICT"));
+    }
+
+    @Test
+    void idempotentReplayShouldNotConsumeRateLimitTokens() throws Exception {
+        UrlRequestDTO request = new UrlRequestDTO("https://example.com/idempotent-rl");
+
+        String first = mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-Forwarded-For", "idem-client")
+                        .header("Idempotency-Key", "replay-key-1"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String second = mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-Forwarded-For", "idem-client")
+                        .header("Idempotency-Key", "replay-key-1"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UrlResponsePayload p1 = objectMapper.readValue(first, UrlResponsePayload.class);
+        UrlResponsePayload p2 = objectMapper.readValue(second, UrlResponsePayload.class);
+        assertThat(p2.shortenUrl()).isEqualTo(p1.shortenUrl());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/other-1")))
+                        .header("X-Forwarded-For", "idem-client"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/other-2")))
+                        .header("X-Forwarded-For", "idem-client"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/other-3")))
+                        .header("X-Forwarded-For", "idem-client"))
+                .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void shortenUrlShouldRejectIdempotencyKeyExceedingMaxLength() throws Exception {
+        String tooLongKey = "k".repeat(256);
+        mockMvc.perform(post("/shorten-url")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new UrlRequestDTO("https://example.com/k")))
+                        .header("Idempotency-Key", tooLongKey))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value("BAD_REQUEST"));
     }
 
     @Test

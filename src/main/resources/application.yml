@@ -27,6 +27,8 @@ management:
 
 url-shortener:
   expiration-minutes: 1
+  idempotency:
+    max-key-length: 255
   rate-limit:
     capacity: 10
     refill-tokens: 10

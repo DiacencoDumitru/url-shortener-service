@@ -8,7 +8,7 @@ import org.springframework.http.HttpHeaders;
 
 public interface UrlService {
 
-    UrlResponseDTO shortenUrl(UrlRequestDTO data, HttpServletRequest request);
+    UrlResponseDTO shortenUrl(UrlRequestDTO data, HttpServletRequest request, String idempotencyKey);
     HttpHeaders redirect(String id);
 
     UrlClickStatsDTO getClickStats(String id);

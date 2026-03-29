@@ -9,6 +9,7 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
   - **Controller**: `UrlController` exposes REST endpoints for shortening and redirecting URLs; `StatsController` exposes click statistics for a short ID.
   - **Service**: `UrlService` / `UrlServiceImpl` contains business logic for ID generation and persistence.
   - **Rate limiting**: `RateLimiterService` / `RedisTokenBucketRateLimiter` protects `POST /shorten-url` from abuse.
+  - **Idempotency**: `IdempotencyService` / `RedisIdempotencyService` stores successful shorten responses in Redis keyed by optional `Idempotency-Key`, so clients can retry safely without creating duplicate links or consuming rate limit tokens on replay.
   - **Redirect cache**: `RedirectUrlCacheService` / `RedisRedirectUrlCacheService` caches redirect targets in Redis (cache-aside) to offload read-heavy `GET /{id}` traffic from MongoDB.
   - **Click analytics**: `ClickCounterService` / `RedisClickCounterService` stores per-link click counts in Redis using atomic `INCR`, with TTL aligned to link expiry.
   - **Persistence**: `UrlRepository` works with MongoDB and the `UrlEntity` document.
@@ -29,11 +30,18 @@ It exposes a simple HTTP API to create short links and redirect users to the ori
 - **Error handling**
   - `UrlNotFoundException` is raised when an unknown short ID is requested.
   - `RateLimitExceededException` is raised when a client exceeds the create-link limit.
+  - `IdempotencyKeyConflictException` is raised when the same `Idempotency-Key` is reused with a different request body (`409 Conflict`).
+  - `InvalidIdempotencyKeyException` is raised when `Idempotency-Key` exceeds the configured maximum length (`400 Bad Request`).
   - `UrlShortenerExceptionHandler` converts domain exceptions into a JSON error model (`UrlShortenerError`).
 - **Rate limiting strategy**
   - Implemented with Redis token bucket and an atomic Lua script.
   - Client identity is resolved from `X-Forwarded-For` header, otherwise from request remote address.
   - Redis key format: `rate-limit:shorten-url:<clientId>`.
+- **Idempotency strategy**
+  - Optional HTTP header `Idempotency-Key` on `POST /shorten-url` identifies a logical create operation.
+  - After a successful response, the same key plus the same JSON body returns the stored `UrlResponseDTO` from Redis (replay does not call the rate limiter).
+  - If the key already exists but the `url` in the body differs, the service responds with **409 Conflict**.
+  - Stored responses use the same TTL as the short link; Redis key format: `idempotency:shorten:<key>`.
 - **Redirect cache strategy**
   - On successful `POST /shorten-url`, the target URL is written to Redis with a TTL aligned to the link expiry.
   - On `GET /{id}`, the service reads from Redis first; on a miss it loads from MongoDB and repopulates Redis.
@@ -82,6 +90,7 @@ Main configuration is located in `src/main/resources/application.yml`:
   - `management.endpoint.health.probes.enabled` – enables `/actuator/health/liveness` and `/actuator/health/readiness` for orchestrators (default: `true`).
 - **URL shortener**
   - `url-shortener.expiration-minutes` – lifetime of a short URL in minutes (default: `1`).
+  - `url-shortener.idempotency.max-key-length` – maximum length of `Idempotency-Key` (default: `255`).
   - `url-shortener.rate-limit.capacity` – max tokens in bucket (default: `10`).
   - `url-shortener.rate-limit.refill-tokens` – tokens added each refill interval (default: `10`).
   - `url-shortener.rate-limit.refill-duration-seconds` – refill interval in seconds (default: `60`).
@@ -140,6 +149,7 @@ Then run the Spring Boot application as described above.
 
 - **Method**: `POST`
 - **Path**: `/shorten-url`
+- **Optional header**: `Idempotency-Key` – opaque value (for example a UUID) for safe retries; same key and same body must return the same `shortenUrl` without consuming another rate limit token on replay.
 - **Request body**:
 
 ```json
@@ -159,10 +169,9 @@ Then run the Spring Boot application as described above.
 
 `shortenUrl` is a full redirect URL that you can share with clients.
 
-Possible error when rate limit is exceeded:
+Possible errors:
 
-- **Status**: `429 Too Many Requests`
-- **Body**:
+- **Rate limit** – **Status**: `429 Too Many Requests`
 
 ```json
 {
@@ -171,6 +180,32 @@ Possible error when rate limit is exceeded:
   "status": "TOO_MANY_REQUESTS",
   "errors": [
     "Rate limit exceeded for client client-a"
+  ]
+}
+```
+
+- **Idempotency conflict** (same `Idempotency-Key`, different `url` in body) – **Status**: `409 Conflict`
+
+```json
+{
+  "timestamp": "01-01-2024 12:00:00",
+  "code": 409,
+  "status": "CONFLICT",
+  "errors": [
+    "Idempotency-Key was already used with a different request body"
+  ]
+}
+```
+
+- **Invalid idempotency key** (key longer than `url-shortener.idempotency.max-key-length`) – **Status**: `400 Bad Request`
+
+```json
+{
+  "timestamp": "01-01-2024 12:00:00",
+  "code": 400,
+  "status": "BAD_REQUEST",
+  "errors": [
+    "Idempotency-Key exceeds maximum length of 255"
   ]
 }
 ```
@@ -240,8 +275,9 @@ The project focuses on **integration tests**:
   - Verifying that the redirect target is stored in Redis after creation.
   - Verifying click counters and `GET /stats/{id}` after multiple redirects.
   - Returning `429 Too Many Requests` when create-link rate limit is exceeded.
+  - Idempotent `POST /shorten-url` with `Idempotency-Key` (same response on replay, `409` on body mismatch, replay bypassing rate limit where applicable).
   - Validating Actuator health and liveness/readiness endpoints.
-  - Verifying that the OpenAPI document lists core REST paths.
+  - Verifying that the OpenAPI document lists core REST paths and the `Idempotency-Key` header.
 
 Run tests with:
 
@@ -254,6 +290,7 @@ mvn test
 - Clean layered architecture (controller → service → repository → MongoDB).
 - Configurable expiration for short URLs via application properties.
 - Redis-based token bucket rate limiting for create-link endpoint abuse protection.
+- Optional `Idempotency-Key` on create-short-URL requests with Redis-backed replay and conflict detection.
 - Redis cache-aside for redirect lookups to reduce MongoDB read load on popular links.
 - Redis-backed click analytics with an HTTP API for per-link statistics.
 - Robust URL generation that respects the incoming request context.

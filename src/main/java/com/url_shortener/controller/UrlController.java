@@ -5,6 +5,7 @@ import com.url_shortener.domain.dto.url.UrlResponseDTO;
 import com.url_shortener.service.UrlService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,11 +24,21 @@ public class UrlController {
 
     @Operation(summary = "Create a short URL", responses = {
             @ApiResponse(responseCode = "200", description = "Short URL created"),
+            @ApiResponse(responseCode = "400", description = "Invalid Idempotency-Key"),
+            @ApiResponse(responseCode = "409", description = "Idempotency-Key reused with a different body"),
             @ApiResponse(responseCode = "429", description = "Rate limit exceeded")
     })
     @PostMapping("/shorten-url")
-    public ResponseEntity<UrlResponseDTO> shortenUrl(@RequestBody UrlRequestDTO data, HttpServletRequest request) {
-        return ResponseEntity.ok(urlService.shortenUrl(data, request));
+    public ResponseEntity<UrlResponseDTO> shortenUrl(
+            @RequestBody UrlRequestDTO data,
+            @Parameter(
+                    name = "Idempotency-Key",
+                    description = "Optional key for safe retries: replays return the same short URL without consuming rate limit",
+                    in = ParameterIn.HEADER,
+                    required = false)
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            HttpServletRequest request) {
+        return ResponseEntity.ok(urlService.shortenUrl(data, request, idempotencyKey));
     }
 
     @Operation(summary = "Redirect to the original URL", responses = {
