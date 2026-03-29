@@ -1,5 +1,7 @@
 package com.url_shortener.exceptions.handler;
 
+import com.url_shortener.exceptions.IdempotencyKeyConflictException;
+import com.url_shortener.exceptions.InvalidIdempotencyKeyException;
 import com.url_shortener.exceptions.RateLimitExceededException;
 import com.url_shortener.exceptions.UrlNotFoundException;
 import com.url_shortener.exceptions.model.UrlShortenerError;
@@ -34,5 +36,27 @@ public class UrlShortenerExceptionHandler {
                 .errors(List.of(ex.getMessage()))
                 .build();
         return new ResponseEntity<>(errorResponse, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @ExceptionHandler(IdempotencyKeyConflictException.class)
+    public ResponseEntity<UrlShortenerError> handleIdempotencyConflict(IdempotencyKeyConflictException ex) {
+        UrlShortenerError errorResponse = UrlShortenerError.builder()
+                .timestamp(LocalDateTime.now())
+                .code(HttpStatus.CONFLICT.value())
+                .status(HttpStatus.CONFLICT.name())
+                .errors(List.of(ex.getMessage()))
+                .build();
+        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    public ResponseEntity<UrlShortenerError> handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
+        UrlShortenerError errorResponse = UrlShortenerError.builder()
+                .timestamp(LocalDateTime.now())
+                .code(HttpStatus.BAD_REQUEST.value())
+                .status(HttpStatus.BAD_REQUEST.name())
+                .errors(List.of(ex.getMessage()))
+                .build();
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 }
